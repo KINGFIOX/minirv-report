@@ -1,40 +1,273 @@
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-		<title>reveal.js</title>
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-		<link rel="stylesheet" href="dist/reset.css">
-		<link rel="stylesheet" href="dist/reveal.css">
-		<link rel="stylesheet" href="dist/theme/black.css">
+	<title>chisel rtl</title>
 
-		<!-- Theme used for syntax highlighted code -->
-		<link rel="stylesheet" href="plugin/highlight/monokai.css">
-	</head>
-	<body>
-		<div class="reveal">
-			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
-			</div>
+	<link rel="stylesheet" href="dist/reset.css">
+	<link rel="stylesheet" href="dist/reveal.css">
+	<link rel="stylesheet" href="dist/theme/white.css">
+
+	<!-- Theme used for syntax highlighted code -->
+	<link rel="stylesheet" href="plugin/highlight/monokai.css">
+</head>
+
+<body>
+	<div class="reveal">
+		<div class="slides">
+			<section>
+				<section>
+					<h2>新时代 RTL 级硬件设计语言</h2>
+					<div>基于 Chisel 的五级流水 RISC-V CPU 核心设计</div>
+					<div>by KINGFIOX</div>
+				</section>
+			</section>
+			<section>
+				<section>
+					<div>chisel</div>
+					<small>construct hardware in scala embedded language</small>
+				</section>
+				<section>
+					<div>scala 是一门神奇的语言, 基于 java, 添加了许多函数式编程的特性</div>
+					<div>chisel 的地位不只是一个 lib, scala 还支持编译器插件, 插件是为了重载关键字和运算符</div>
+					</code>
+					<pre data-id="code-animation"><code class="hljs scala" data-trim data-line-numbers>
+					lazy val root = (project in file("."))
+						.settings(
+						name := "minirv",
+						libraryDependencies ++= Seq(
+							"org.chipsalliance" %% "chisel" % chiselVersion,
+							"org.scalatest" %% "scalatest" % "3.2.16" % "test",
+							"com.sifive" %% "chisel-circt" % "0.8.0"
+						),
+						scalacOptions ++= Seq(
+							"-language:reflectiveCalls",
+							"-deprecation",
+							"-feature",
+							"-Xcheckinit",
+							"-Ymacro-annotations"
+						),
+						addCompilerPlugin(
+							"org.chipsalliance" % "chisel-plugin" % chiselVersion cross CrossVersion.full
+						)
+					)
+					</code></pre>
+					<small>上面是 scala build tool 配置文件, 类似于 cmake</small>
+				</section>
+				<section>
+					<div>https://www.chisel-lang.org</div>
+					<iframe src="https://www.chisel-lang.org" width="1280px" height="720px"></iframe>
+				</section>
+			</section>
+			<section>
+				<section>
+					<div>工业上的应用？</div>
+				</section>
+				<section>
+					<small> 回旋镖: 可以看到, 我的 build.sbt 文件中有 com.sifive 的字样</small>
+					<pre data-id="code-animation"><code class="hljs scala" data-trim data-line-numbers>
+					lazy val root = (project in file("."))
+						.settings(
+						name := "minirv",
+						libraryDependencies ++= Seq(
+							"org.chipsalliance" %% "chisel" % chiselVersion,
+							"org.scalatest" %% "scalatest" % "3.2.16" % "test",
+							"com.sifive" %% "chisel-circt" % "0.8.0"
+						),
+						scalacOptions ++= Seq(
+							"-language:reflectiveCalls",
+							"-deprecation",
+							"-feature",
+							"-Xcheckinit",
+							"-Ymacro-annotations"
+						),
+						addCompilerPlugin(
+							"org.chipsalliance" % "chisel-plugin" % chiselVersion cross CrossVersion.full
+						)
+					)
+					</code></pre>
+				</section>
+				<section>
+					<div>工业上的应用？</div>
+					<div><a href="https://en.wikipedia.org/wiki/SiFive" target="_blank">wiki: SiFive</a></div>
+					<div><a href="https://en.wikipedia.org/wiki/RISC-V" target="_blank">wiki: RISC-V</a></div>
+					<div><a href="https://github.com/sifive" target="_blank">github: SiFive</a></div>
+					<div><a href="https://xiangshan-doc-en.readthedocs.io/" target="_blank">香山处理器</a></div>
+				</section>
+				<section>
+					<iframe src="https://xiangshan-doc-en.readthedocs.io/" width="1280px" height="720px"></iframe>
+				</section>
+			</section>
+			<section>
+				<section>
+					<h2> chisel 描述 五级流水 の 小寄巧 </h2>
+				</section>
+				<section>
+					<div>看一段爽的代码</div>
+					<pre data-id="code-animation"><code class="hljs scala" data-trim data-line-numbers>
+class Bridge(ranges: Seq[(Int, Int)]) extends Module with HasCoreParameter {
+  val io = IO(new Bundle {
+    val cpu = Flipped(new BusBundle)
+    val dev = Vec(ranges.size, new BridgeDev_Bundle)
+  })
+  private val within_range = VecInit(ranges.map { case (beg, end) =>
+    (ZeroExt(beg) <= io.cpu.addr && io.cpu.addr <= ZeroExt(end))
+  })
+  io.cpu.rdata := Mux1H(within_range, io.dev.map(_.rdata))
+  for (i <- 0 until ranges.size) {
+    io.dev(i).addr  := io.cpu.addr
+    io.dev(i).wen   := Fill(dataBytes, within_range(i)) & io.cpu.wen
+    io.dev(i).wdata := io.cpu.wdata
+  }
+}
+				</code></pre>
+					<small>
+						<ul>
+							<li>更好的参数化: 传入的是 scala 的 Seq 类型, 可以类比 verilog 的宏</li>
+							<li>函数式的生成 one-hot 编码</li>
+							<li>使用了 chisel 库中的 Mux1H -> 复用!!!</li>
+							<li>for 循环连线, 虽然 verilog 也有</li>
+							<li>Bundle -> 线束 !!! -> 不用一根一根连线了喵</li>
+						</ul>
+					</small>
+				</section>
+				<section>
+					<div>类型安全的枚举</div>
+					<pre data-id="code-animation"><code class="hljs scala" data-trim data-line-numbers>
+object ALU_op1_sel extends ChiselEnum {
+  val alu_op1sel_ZERO, alu_op1sel_RS1, alu_op1sel_PC = Value
+}
+alu_.io.op1_v := Mux1H(
+  Seq(
+    (id2exe_r.alu_ctrl.op1_sel === ALU_op1_sel.alu_op1sel_ZERO) -> 0.U,
+    (id2exe_r.alu_ctrl.op1_sel === ALU_op1_sel.alu_op1sel_PC)   -> (id2exe_r.pc),
+    (id2exe_r.alu_ctrl.op1_sel === ALU_op1_sel.alu_op1sel_RS1)  -> id2exe_r.rf.vals.rs1
+  )
+)
+				</code></pre>
+					<small>你是否有考虑过枚举类型的位宽问题</small>
+					<small>你是否有用 "parameter 参数名" 来约束枚举的含义</small>
+					<small>你是否复制代码的时候, 忘记改一些枚举的名字导致进入了死状态</small>
+				</section>
+				<section>
+					<div>复用!!! 无需多盐喵</div>
+					<pre data-id="code-animation"><code class="hljs scala" data-trim data-line-numbers>
+  private def R_inst(op: ALUOpType.Type) = {
+    io.alu_ctrl.calc    := op
+    io.alu_ctrl.op1_sel := ALU_op1_sel.alu_op1sel_RS1
+    io.alu_ctrl.op2_sel := ALU_op2_sel.alu_op2sel_RS2
+    io.wb.sel           := WB_sel.wbsel_ALU
+    io.wb.wen           := true.B
+  }
+  when(io.inst === Instructions.ADD) {
+    R_inst(ALUOpType.alu_ADD)
+  }
+  when(io.inst === Instructions.SUB) {
+    R_inst(ALUOpType.alu_SUB)
+  }
+  when(io.inst === Instructions.AND) {
+    R_inst(ALUOpType.alu_AND)
+  }
+  when(io.inst === Instructions.OR) {
+    R_inst(ALUOpType.alu_OR)
+  }
+  when(io.inst === Instructions.XOR) {
+    R_inst(ALUOpType.alu_XOR)
+  }
+  when(io.inst === Instructions.SLL) {
+    R_inst(ALUOpType.alu_SLL)
+  }
+  when(io.inst === Instructions.SRL) {
+    R_inst(ALUOpType.alu_SRL)
+  }
+  when(io.inst === Instructions.SRA) {
+    R_inst(ALUOpType.alu_SRA)
+  }
+  when(io.inst === Instructions.SLT) {
+    R_inst(ALUOpType.alu_SLT)
+  }
+  when(io.inst === Instructions.SLTU) {
+    R_inst(ALUOpType.alu_SLTU)
+  }
+				</code></pre>
+				</section>
+				<section>
+					<div>泛型编程也是复用</div>
+					<pre data-id="code-animation"><code class="hljs scala" data-trim data-line-numbers>
+object pipe {
+  def apply[T <: Data](left: T, wen: Bool): T = {
+    RegEnable(left, wen)
+  }
+}
+
+private val if_l = if_.io.out
+/* ---------- ---------- ID ---------- ---------- */
+val if_r = pipe(if_l, true.B)
+				</code></pre>
+				</section>
+				<section>
+					<div>更好的类型系统</div>
+					<pre data-id="code-animation"><code class="hljs scala" data-trim data-line-numbers>
+trait HasCoreParameter {
+  implicit val XLEN: Int = 32 // 机器字长
+  // val AddrBits  = XLEN // AddrBits is used in some cases
+  // val DataBits  = XLEN // 一个 word 有几个 bit
+  def dataBytes     = XLEN >> 3 // 一个 word 有几个字节  4
+  def dataBytesBits = log2Ceil(dataBytes) // 一个 word 有几个字节的位宽 2
+
+  val NOP = 0x0000_0013 // add zero, zero, zero
+}
+
+class JMPBundle extends Bundle with HasCoreParameter {
+  val op    = Output(JMPOpType())
+  val imm   = Output(UInt(XLEN.W))
+  val pc    = Output(UInt(XLEN.W))
+  val rs1_v = Output(UInt(XLEN.W))
+}
+				</code></pre>
+				</section>
+			</section>
+			<section>
+				<div><a href="https://github.com/KINGFIOX/minirv/graphs/commit-activity" target="_blank">
+						敏捷开发 の 诱惑 </a></div>
+			</section>
+			<section>
+				<div> 为了实现中断, 我做了一些什么？ </div>
+				<div><a href="https://github.com/KINGFIOX/rv32i" target="_blank">
+						scala 写的 rv32i 的模拟器 </a></div>
+				<small>因为比较忙, 遂弃坑(模拟器是完整的), 呜呜呜</small>
+			</section>
+			<section>
+				<div> 语言不过是描述逻辑的, 但是一些优雅的语言写起来比较愉悦 </div>
+			</section>
+			<section>
+				<div> 使用了 nix 管理开发环境 </div>
+			</section>
 		</div>
+	</div>
 
-		<script src="dist/reveal.js"></script>
-		<script src="plugin/notes/notes.js"></script>
-		<script src="plugin/markdown/markdown.js"></script>
-		<script src="plugin/highlight/highlight.js"></script>
-		<script>
-			// More info about initialization & config:
-			// - https://revealjs.com/initialization/
-			// - https://revealjs.com/config/
-			Reveal.initialize({
-				hash: true,
+	<script src="dist/reveal.js"></script>
+	<!-- <script src="plugin/zoom/zoom.js"></script> -->
+	<!-- <script src="plugin/notes/notes.js"></script> -->
+	<!-- <script src="plugin/search/search.js"></script> -->
+	<!-- <script src="plugin/markdown/markdown.js"></script> -->
+	<script src="plugin/highlight/highlight.js"></script>
+	<script>
+		// More info about initialization & config:
+		// - https://revealjs.com/initialization/
+		// - https://revealjs.com/config/
+		Reveal.initialize({
+			hash: true,
 
-				// Learn about plugins: https://revealjs.com/plugins/
-				plugins: [ RevealMarkdown, RevealHighlight, RevealNotes ]
-			});
-		</script>
-	</body>
+			// Learn about plugins: https://revealjs.com/plugins/
+			// plugins: [RevealMarkdown, RevealHighlight, RevealNotes]
+			// plugins: [RevealHighlight, RevealNotes]
+			plugins: [RevealHighlight]
+		});
+	</script>
+</body>
+
 </html>

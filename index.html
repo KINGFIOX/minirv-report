@@ -21,7 +21,6 @@
 			<section>
 				<section>
 					<h2>新时代 RTL 级硬件设计语言</h2>
-					<div>基于 Chisel 的五级流水 RISC-V CPU 核心设计</div>
 					<div>by KINGFIOX</div>
 				</section>
 			</section>
@@ -32,7 +31,9 @@
 				</section>
 				<section>
 					<div>scala 是一门神奇的语言, 基于 java, 添加了许多函数式编程的特性</div>
-					<div>chisel 的地位不只是一个 lib, scala 还支持编译器插件, 插件是为了重载关键字和运算符</div>
+					<small>chisel 的地位不只是一个 lib, scala 还支持编译器插件, 插件是为了重载关键字和运算符。
+						chisel 的工作流程是: scala 描述的 rtl 编译成 system verilog, 然后我们的 vivado 和 verilator 都支持 sv
+					</small>
 					</code>
 					<pre data-id="code-animation"><code class="hljs scala" data-trim data-line-numbers>
 					lazy val root = (project in file("."))
@@ -148,9 +149,9 @@ alu_.io.op1_v := Mux1H(
   )
 )
 				</code></pre>
-					<small>你是否有考虑过枚举类型的位宽问题</small>
-					<small>你是否有用 "parameter 参数名" 来约束枚举的含义</small>
-					<small>你是否复制代码的时候, 忘记改一些枚举的名字导致进入了死状态</small>
+					<small><a href="https://github.com/KINGFIOX/DIgiLogic/blob/main/lab/report6/cal.v#L36"
+							target="_blank">你是否有考虑过枚举类型的位宽问题</a></small>
+					<small>两个状态机混在一起的时候, 没有类型安全, 很容易导致状态的误用, 比防说 dcache 的 read 和 write 。 这种错误非常容易在复制代码的时候发生</small>
 				</section>
 				<section>
 					<div>复用!!! 无需多盐喵</div>
@@ -206,7 +207,33 @@ object pipe {
 private val if_l = if_.io.out
 /* ---------- ---------- ID ---------- ---------- */
 val if_r = pipe(if_l, true.B)
+// ...
+private val id2exe_l = ID2EXEBundle( ... )
+/* ---------- ---------- EXE ---------- ---------- */
+private val id2exe_r = pipe(id2exe_l, true.B)
+// ...
+private val exe2mem_l = EXE2MEMBundle( ... )
+/* ---------- ---------- MEM ---------- ---------- */
+private val exe2mem_r = pipe(exe2mem_l, true.B)
+// ...
+private val mem2wb_l = MEM2WBBundle( ... )
+/* ---------- ---------- WB ---------- ---------- */
+private val mem2wb_r = pipe(mem2wb_l, true.B)
 				</code></pre>
+					<div> <img class="fragment" src="https://comp2012.pages.dev/lab3/assets/5-5.png" /> </div>
+				</section>
+				<section>
+					<div>封装/隐藏逻辑, formatted code</div>
+					<pre data-id="code-animation"><code class="hljs scala" data-trim data-line-numbers>
+val cpu_clk = if (ENV.isVivado) CLKGen(this.clock) else this.clock
+object CLKGen {
+  def apply(clk: Clock): Clock = {
+    val clkgen = Module(new PLL)
+    clkgen.io.clk_in1 := clk
+    (clkgen.io.clk_out1.asBool & clkgen.io.locked).asClock
+  }
+}
+					</code></pre>
 				</section>
 				<section>
 					<div>更好的类型系统</div>
@@ -244,16 +271,17 @@ class JMPBundle extends Bundle with HasCoreParameter {
 				<div> 语言不过是描述逻辑的, 但是一些优雅的语言写起来比较愉悦 </div>
 			</section>
 			<section>
-				<div> 使用了 nix 管理开发环境 </div>
-				<pre data-id="code-animation"><code class="hljs scala" data-trim data-line-numbers>
+				<section>
+					<div> 使用了 <a href="https://nixos.org" target="_blank">nix</a> 管理开发环境 </div>
+					<pre data-id="code-animation"><code class="hljs nix" data-trim data-line-numbers>
 {
   description = "A flake to provide an environment for fpga";
-
+				
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
   };
-
+				
   outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
@@ -263,25 +291,21 @@ class JMPBundle extends Bundle with HasCoreParameter {
       in {
         devShell = pkgs.mkShell {
           buildInputs = with pkgs; [
-            # scala
             sbt
             temurin-bin-17
             metals
             mill
             metals
             bloop
-            # c++
-            # rocmPackages.llvm.clang-tools-extra
             verilator
             bear
-            # utils
             qemu
             (with pkgsCross.riscv64; [ buildPackages.gcc ])
             (with pkgsCross.riscv32; [ buildPackages.gcc ])
             yosys
             verible
           ];
-
+				
           shellHook = ''
             export C_INCLUDE_PATH=${verilatorIncludePath}:$C_INCLUDE_PATH
             export CPLUS_INCLUDE_PATH=${verilatorIncludePath}:$CPLUS_INCLUDE_PATH
@@ -290,7 +314,24 @@ class JMPBundle extends Bundle with HasCoreParameter {
         };
       });
 }
-				</code></pre>
+					</code></pre>
+					<small> verilator 是在 trace 中用到了, 作用是: 将 sv 描述的模块, 编译成等价的 C++ 类。构建工具是 GNU Make, 因此可以看到, 我在 shellHook
+						中添加了一个环境变量 -j, 这可以多线程编译, 缩短编译的时间 </small>
+				</section>
+				<section>
+					<iframe src="https://nixos.org" width="1280px" height="720px"></iframe>
+				</section>
+			</section>
+			<section>
+				<div> gtkwave の 小寄巧 </div>
+				<small> 可以写一个 <a
+						href="https://79cf8f61.wiki-vq8.pages.dev/unofficial-lab-env/comp-organ-lab2/#%E4%BD%BF%E7%94%A8-tcl-%E8%84%9A%E6%9C%AC"
+						target="_blank">tcl</a> 脚本来一次性将所有波形拉取下来 </small>
+				<small> ( 但是我们的 trace 挺好的, 几乎可以让我们不用看波形 ) </small>
+			</section>
+			<section>
+				<div> git の 小寄巧 </div>
+				<small> 推荐使用 lazygit </small>
 			</section>
 		</div>
 	</div>
